@@ -8,8 +8,6 @@ defmodule Paddle.Parsing do
   # == DN manipulation ==
   # =====================
 
-  @spec construct_dn(keyword | [{binary, binary}], binary | charlist) :: charlist
-
   @doc ~S"""
   Construct a DN Erlang string based on a keyword list or a string.
 
@@ -30,33 +28,34 @@ defmodule Paddle.Parsing do
   reordered and because they can be mistaken for a class object (see
   `Paddle.Class`).
   """
-  def construct_dn(subdn, base) when is_binary(base) do
-    construct_dn(subdn, :binary.bin_to_list(base))
-  end
-
+  @spec construct_dn(keyword | [{binary, binary}], binary | charlist) :: charlist
   def construct_dn(map, base \\ '')
 
   def construct_dn([], base) when is_list(base), do: base
 
-  def construct_dn(subdn, base) when is_binary(subdn) and is_list(base), do:
-    :binary.bin_to_list(subdn) ++ ',' ++ base
+  def construct_dn(subdn, base) when is_binary(subdn) and is_list(base),
+    do: :binary.bin_to_list(subdn) ++ ',' ++ base
 
   def construct_dn(nil, base) when is_list(base), do: base
 
   def construct_dn(map, '') do
-    ',' ++ dn = Enum.reduce(map,
-                            '',
-                            fn {key, value}, acc ->
-                              acc ++ ',#{key}=#{ldap_escape value}'
-                            end)
+    ',' ++ dn =
+      Enum.reduce(
+        map,
+        '',
+        fn {key, value}, acc ->
+          acc ++ ',#{key}=#{ldap_escape(value)}'
+        end
+      )
+
     dn
   end
 
-  def construct_dn(map, base) when is_list(base) do
-    construct_dn(map, '') ++ ',' ++ base
-  end
+  def construct_dn(subdn, base) when is_binary(base),
+    do: construct_dn(subdn, :binary.bin_to_list(base))
 
-  @spec dn_to_kwlist(charlist | binary) :: [{binary, binary}]
+  def construct_dn(map, base) when is_list(base),
+    do: construct_dn(map, '') ++ ',' ++ base
 
   @doc ~S"""
   Tranform an LDAP DN to a keyword list.
@@ -70,12 +69,14 @@ defmodule Paddle.Parsing do
       iex> Paddle.Parsing.dn_to_kwlist("uid=user,ou=People,dc=organisation,dc=org")
       [{"uid", "user"}, {"ou", "People"}, {"dc", "organisation"}, {"dc", "org"}]
   """
+  @spec dn_to_kwlist(charlist | binary) :: [{binary, binary}]
   def dn_to_kwlist(""), do: []
   def dn_to_kwlist(nil), do: []
 
   def dn_to_kwlist(dn) when is_binary(dn) do
     %{"key" => key, "value" => value, "rest" => rest} =
       Regex.named_captures(~r/^(?<key>.+)=(?<value>.+)(,(?<rest>.+))?$/U, dn)
+
     [{key, value}] ++ dn_to_kwlist(rest)
   end
 
@@ -94,18 +95,20 @@ defmodule Paddle.Parsing do
   def ldap_escape(''), do: ''
 
   def ldap_escape([char | rest]) do
-    escaped_char = case char do
-      ?,  -> '\\,'
-      ?#  -> '\\#'
-      ?+  -> '\\+'
-      ?<  -> '\\<'
-      ?>  -> '\\>'
-      ?;  -> '\\;'
-      ?"  -> '\\\"'
-      ?=  -> '\\='
-      ?\\ -> '\\\\'
-      _   -> [char]
-    end
+    escaped_char =
+      case char do
+        ?, -> '\\,'
+        ?# -> '\\#'
+        ?+ -> '\\+'
+        ?< -> '\\<'
+        ?> -> '\\>'
+        ?; -> '\\;'
+        ?" -> '\\\"'
+        ?= -> '\\='
+        ?\\ -> '\\\\'
+        _ -> [char]
+      end
+
     escaped_char ++ ldap_escape(rest)
   end
 
@@ -119,10 +122,10 @@ defmodule Paddle.Parsing do
   @type eldap_entry :: {:eldap_entry, eldap_dn, [{charlist, [charlist]}]}
 
   @spec clean_eldap_search_results(
-    {:ok, {:eldap_search_result, [eldap_entry]}}
-    | {:error, atom},
-    charlist
-  ) :: {:ok, [Paddle.ldap_entry]} | {:error, Paddle.search_ldap_error}
+          {:ok, {:eldap_search_result, [eldap_entry]}}
+          | {:error, atom},
+          charlist
+        ) :: {:ok, [Paddle.ldap_entry()]} | {:error, Paddle.search_ldap_error()}
 
   @doc ~S"""
   Convert an `:eldap` search result to a `Paddle` representation.
@@ -157,7 +160,11 @@ defmodule Paddle.Parsing do
     {:ok, clean_entries(entries, base)}
   end
 
-  @spec entry_to_class_object(Paddle.ldap_entry, Paddle.Class.t) :: Paddle.Class.t
+  def clean_eldap_search_results({:ok, {:eldap_search_result, entries, [], :asn1_NOVALUE}}, base) do
+    {:ok, clean_entries(entries, base)}
+  end
+
+  @spec entry_to_class_object(Paddle.ldap_entry(), Paddle.Class.t()) :: Paddle.Class.t()
 
   @doc ~S"""
   Convert a `Paddle` entry to a given `Paddle` class object.
@@ -172,15 +179,16 @@ defmodule Paddle.Parsing do
         uidNumber: nil, userPassword: nil}
   """
   def entry_to_class_object(entry, target) do
-    entry = entry
-            |> Map.drop(["dn", "objectClass"])
-            |> Enum.map(fn {key, value} -> {String.to_atom(key), value} end)
-            |> Enum.into(%{})
+    entry =
+      entry
+      |> Map.drop(["dn", "objectClass"])
+      |> Enum.map(fn {key, value} -> {String.to_atom(key), value} end)
+      |> Enum.into(%{})
 
     Map.merge(target, entry)
   end
 
-  @spec clean_entries([eldap_entry], charlist) :: [Paddle.ldap_entry]
+  @spec clean_entries([eldap_entry], charlist) :: [Paddle.ldap_entry()]
 
   @doc ~S"""
   Get a binary map representation of several eldap entries.
@@ -198,11 +206,12 @@ defmodule Paddle.Parsing do
   """
   def clean_entries(entries, base) do
     base_length = length(base)
+
     entries
-    |> Enum.map(&(clean_entry(&1, base_length)))
+    |> Enum.map(&clean_entry(&1, base_length))
   end
 
-  @spec clean_entry(eldap_entry, integer) :: Paddle.ldap_entry
+  @spec clean_entry(eldap_entry, integer) :: Paddle.ldap_entry()
 
   @doc ~S"""
   Get a binary map representation of a single eldap entry.
@@ -219,23 +228,30 @@ defmodule Paddle.Parsing do
       %{"dn" => "uid=testuser", "uid" => ["testuser"]}
   """
   def clean_entry({:eldap_entry, dn, attributes}, base_length) do
-    %{"dn" => dn |> List.to_string |> strip_base_from_dn(base_length)}
-    |> Map.merge(attributes
-                 |> attributes_to_binary
-                 |> Enum.into(%{}))
+    %{"dn" => dn |> List.to_string() |> strip_base_from_dn(base_length)}
+    |> Map.merge(
+      attributes
+      |> attributes_to_binary
+      |> Enum.into(%{})
+    )
   end
 
   defp strip_base_from_dn(dn, 0) when is_binary(dn), do: dn
+
   defp strip_base_from_dn(dn, base_length) when is_binary(dn) do
     dn_length = String.length(dn)
-    String.slice(dn, 0, dn_length - base_length - 1)
+    slice_length = case dn_length - base_length do
+      0 -> 0
+      _ -> dn_length - base_length - 1
+    end
+    String.slice(dn, 0, slice_length)
   end
 
   # ===================
   # == Modifications ==
   # ===================
 
-  @spec mod_convert(Paddle.mod) :: tuple
+  @spec mod_convert(Paddle.mod()) :: tuple
 
   @doc ~S"""
   Convert a user-friendly modify operation to an eldap operation.
@@ -258,7 +274,7 @@ defmodule Paddle.Parsing do
 
   def mod_convert({:add, {field, value}}) do
     field = '#{field}'
-    value = list_wrap value
+    value = list_wrap(value)
     :eldap.mod_add(field, value)
   end
 
@@ -269,7 +285,7 @@ defmodule Paddle.Parsing do
 
   def mod_convert({:replace, {field, value}}) do
     field = '#{field}'
-    value = list_wrap value
+    value = list_wrap(value)
     :eldap.mod_replace(field, value)
   end
 
@@ -308,8 +324,6 @@ defmodule Paddle.Parsing do
   @spec attribute_to_binary({charlist, [charlist]}) :: {binary, [binary]}
 
   defp attribute_to_binary({key, values}) do
-    {List.to_string(key),
-     values |> Enum.map(&:binary.list_to_bin/1)}
+    {List.to_string(key), values |> Enum.map(&:binary.list_to_bin/1)}
   end
-
 end
