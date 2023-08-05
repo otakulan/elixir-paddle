@@ -122,7 +122,7 @@ defmodule Paddle.Parsing do
   @type eldap_entry :: {:eldap_entry, eldap_dn, [{charlist, [charlist]}]}
 
   @spec clean_eldap_search_results(
-          {:ok, {:eldap_search_result, [eldap_entry]}}
+          {:ok, tuple}
           | {:error, atom},
           charlist
         ) :: {:ok, [Paddle.ldap_entry()]} | {:error, Paddle.search_ldap_error()}
@@ -152,16 +152,20 @@ defmodule Paddle.Parsing do
     {:error, error}
   end
 
-  def clean_eldap_search_results({:ok, {:eldap_search_result, [], []}}, _base) do
-    {:error, :noSuchObject}
-  end
-
-  def clean_eldap_search_results({:ok, {:eldap_search_result, entries, []}}, base) do
-    {:ok, clean_entries(entries, base)}
-  end
-
-  def clean_eldap_search_results({:ok, {:eldap_search_result, entries, [], :asn1_NOVALUE}}, base) do
-    {:ok, clean_entries(entries, base)}
+  def clean_eldap_search_results({:ok, response}, base) do
+    case response do
+      {:eldap_search_result, _entries = [], _referrals = []} ->
+        {:error, :noSuchObject}
+      {:eldap_search_result, _entries = [], _referrals = [], _controls} ->
+        {:error, :noSuchObject}
+      {:eldap_search_result, entries, _referrals = []} ->
+        {:ok, clean_entries(entries, base)}
+      {:eldap_search_result, entries, _referrals = [], :asn1_NOVALUE} ->
+        {:ok, clean_entries(entries, base)}
+      unhandled ->
+        Logger.debug("Unhandled response type in #{__ENV__.function}")
+        {:error, :noSuchObject}
+    end
   end
 
   @spec entry_to_class_object(Paddle.ldap_entry(), Paddle.Class.t()) :: Paddle.Class.t()
